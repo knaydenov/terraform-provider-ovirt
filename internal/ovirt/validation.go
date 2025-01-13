@@ -2,6 +2,7 @@ package ovirt
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -339,5 +340,31 @@ func validateHugePages(i interface{}, path cty.Path) diag.Diagnostics {
 			},
 		}
 	}
+	return nil
+}
+
+func validateIsMac(value interface{}, path cty.Path) diag.Diagnostics {
+	v, ok := value.(string)
+	if !ok {
+		return diag.Diagnostics{
+			{
+				Severity:      diag.Error,
+				Summary:       "Passed parameter is not a string.",
+				Detail:        "The passed parameter is not a string.",
+				AttributePath: path,
+			},
+		}
+	}
+
+	if _, err := net.ParseMAC(v); err != nil {
+		return diag.Diagnostics{
+			{
+				Severity:      diag.Error,
+				Summary:       "This field must be a valid MAC.",
+				AttributePath: path,
+			},
+		}
+	}
+
 	return nil
 }

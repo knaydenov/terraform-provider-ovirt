@@ -36,6 +36,13 @@ var nicSchema = map[string]*schema.Schema{
 		ForceNew:         true,
 		ValidateDiagFunc: validateNonEmpty,
 	},
+	"mac": {
+		Type:             schema.TypeString,
+		Optional:         true,
+		Description:      "A user-defined MAC for the NIC.",
+		ForceNew:         true,
+		ValidateDiagFunc: validateIsMac,
+	},
 }
 
 func (p *provider) nicResource() *schema.Resource {
@@ -56,12 +63,15 @@ func (p *provider) nicCreate(ctx context.Context, data *schema.ResourceData, _ i
 	vmID := data.Get("vm_id").(string)
 	vnicProfileID := data.Get("vnic_profile_id").(string)
 	name := data.Get("name").(string)
+	mac := data.Get("mac").(string)
+
+	optionalNicParameters, err := ovirtclient.CreateNICParams().WithMac(mac)
 
 	nic, err := client.CreateNIC(
 		ovirtclient.VMID(vmID),
 		ovirtclient.VNICProfileID(vnicProfileID),
 		name,
-		nil,
+		optionalNicParameters,
 	)
 	if err != nil {
 		return errorToDiags("create NIC", err)
@@ -136,5 +146,6 @@ func nicResourceUpdate(nic ovirtclient.NIC, data *schema.ResourceData) diag.Diag
 	diags = setResourceField(data, "vnic_profile_id", nic.VNICProfileID(), diags)
 	diags = setResourceField(data, "name", nic.Name(), diags)
 	diags = setResourceField(data, "vm_id", nic.VMID(), diags)
+	diags = setResourceField(data, "mac", nic.Mac(), diags)
 	return diags
 }
