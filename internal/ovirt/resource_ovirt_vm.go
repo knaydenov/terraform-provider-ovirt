@@ -3,6 +3,7 @@ package ovirt
 import (
 	"context"
 	"fmt"
+	ovirtsdk "github.com/ovirt/go-ovirt"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
@@ -95,6 +96,13 @@ var vmSchema = map[string]*schema.Schema{
 		ForceNew:    true,
 		Description: "Operating system type.",
 	},
+	"os_boot_params": {
+		Type:        schema.TypeMap,
+		Optional:    true,
+		ForceNew:    true,
+		Description: "OS boot parameters.",
+		Elem:        schema.TypeString,
+	},
 	"vm_type": {
 		Type:             schema.TypeString,
 		Optional:         true,
@@ -157,11 +165,91 @@ var vmSchema = map[string]*schema.Schema{
 		ForceNew:    true,
 		Description: "Custom script that passed to VM during initialization.",
 	},
+	"initialization_dns_search": {
+		Type:        schema.TypeString,
+		Optional:    true,
+		ForceNew:    true,
+		Description: "TODO.",
+	},
+	"initialization_dns_servers": {
+		Type:        schema.TypeString,
+		Optional:    true,
+		ForceNew:    true,
+		Description: "TODO.",
+	},
+	"initialization_network_interface": {
+		Type:        schema.TypeSet,
+		Optional:    true,
+		ForceNew:    true,
+		Description: "Custom script that passed to VM during initialization.",
+		Elem: &schema.Resource{
+			Schema: map[string]*schema.Schema{
+				"name": {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+				},
+				"address": {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+				},
+				"gateway": {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+				},
+				"netmask": {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+				},
+				"version": {
+					Type:             schema.TypeString,
+					Required:         true,
+					ForceNew:         true,
+					ValidateDiagFunc: validateEnum([]string{string(ovirtclient.IPVERSION_V4), string(ovirtclient.IPVERSION_V6)}),
+				},
+			},
+		},
+	},
+	"initialization_cloud_init_network_protocol": {
+		Type:             schema.TypeString,
+		Optional:         true,
+		ForceNew:         true,
+		Description:      "cloud init network protocol.",
+		ValidateDiagFunc: validateEnum([]string{string(ovirtsdk.CLOUDINITNETWORKPROTOCOL_ENI), string(ovirtsdk.CLOUDINITNETWORKPROTOCOL_OPENSTACK_METADATA)}),
+	},
 	"initialization_hostname": {
 		Type:        schema.TypeString,
 		Optional:    true,
 		ForceNew:    true,
 		Description: "hostname that is set during initialization.",
+	},
+	"initialization_user": {
+		Type:        schema.TypeSet,
+		Optional:    true,
+		ForceNew:    true,
+		Description: "TODO.",
+		Elem: &schema.Resource{
+			Schema: map[string]*schema.Schema{
+				"username": {
+					Type:     schema.TypeString,
+					Optional: true,
+					ForceNew: true,
+				},
+				"password": {
+					Type:     schema.TypeString,
+					Optional: true,
+					ForceNew: true,
+				},
+				"authorized_ssh_keys": {
+					Type:     schema.TypeString,
+					Optional: true,
+					ForceNew: true,
+				},
+			},
+		},
 	},
 	"memory": {
 		Type:             schema.TypeInt,
@@ -547,6 +635,46 @@ func handleVMOSType(
 		if err != nil {
 			diags = append(diags, errorToDiag("add OS type to VM", err))
 		}
+
+		if osBootParams, ok := data.GetOk("os_boot_params"); ok {
+			osBootParamsMap := osBootParams.(map[string]interface{})
+
+			if cmdline, ok := osBootParamsMap["cmdline"]; ok {
+				osParams, err = osParams.WithCmdline(cmdline.(string))
+				if err != nil {
+					diags = append(diags, errorToDiag("add OS cmdline to VM", err))
+				}
+			}
+
+			if customKernelCmdline, ok := osBootParamsMap["custom_kernel_cmdline"]; ok {
+				osParams, err = osParams.WithCustomKernelCmdline(customKernelCmdline.(string))
+				if err != nil {
+					diags = append(diags, errorToDiag("add OS custom kernel cmdline to VM", err))
+				}
+			}
+
+			if initrd, ok := osBootParamsMap["initrd"]; ok {
+				osParams, err = osParams.WithInitrd(initrd.(string))
+				if err != nil {
+					diags = append(diags, errorToDiag("add OS custom initrd path to VM", err))
+				}
+			}
+
+			if kernel, ok := osBootParamsMap["kernel"]; ok {
+				osParams, err = osParams.WithKernel(kernel.(string))
+				if err != nil {
+					diags = append(diags, errorToDiag("add OS custom kernel path to VM", err))
+				}
+			}
+
+			if reportedKernelCmdline, ok := osBootParamsMap["reported_kernel_cmdline"]; ok {
+				osParams, err = osParams.WithReportedKernelCmdline(reportedKernelCmdline.(string))
+				if err != nil {
+					diags = append(diags, errorToDiag("add OS custom reported kernel cmdline path to VM", err))
+				}
+			}
+		}
+
 		params.WithOS(osParams)
 	}
 	return diags
@@ -661,8 +789,29 @@ func handleVMInitialization(
 ) diag.Diagnostics {
 	vmInitScript := ""
 	vmHostname := ""
+	vmInitDnsSearch := ""
+	vmInitDnsServers := ""
+	vmCloudInitNetworkProtocol := ""
+	vmUserName := ""
+	vmPassword := ""
+	vmAuthorizedSshKeys := ""
+
+	var vmNicConfiguration ovirtclient.NicConfiguration = nil
 	useInit := false
 
+	if hUser, ok := data.GetOk("initialization_user"); ok {
+		hUserSet := hUser.(*schema.Set)
+		for _, item := range hUserSet.List() {
+			hUserMap, ok := item.(map[string]interface{})
+			if ok {
+				vmUserName, _ = hUserMap["name"].(string)
+				vmPassword, _ = hUserMap["password"].(string)
+				vmAuthorizedSshKeys, _ = hUserMap["authorized_ssh_keys"].(string)
+
+				useInit = true
+			}
+		}
+	}
 	if hName, ok := data.GetOk("initialization_hostname"); ok {
 		vmHostname = hName.(string)
 		useInit = true
@@ -671,9 +820,61 @@ func handleVMInitialization(
 		vmInitScript = hInitScript.(string)
 		useInit = true
 	}
+	if hInitDnsSearch, ok := data.GetOk("initialization_dns_search"); ok {
+		vmInitDnsSearch = hInitDnsSearch.(string)
+		useInit = true
+	}
+	if hInitDnsServers, ok := data.GetOk("initialization_dns_servers"); ok {
+		vmInitDnsServers = hInitDnsServers.(string)
+		useInit = true
+	}
+	if hCloudInitNetworkProtocol, ok := data.GetOk("initialization_cloud_init_network_protocol"); ok {
+		vmCloudInitNetworkProtocol = hCloudInitNetworkProtocol.(string)
+		useInit = true
+	}
+	if hInitNetworkInterface, ok := data.GetOk("initialization_network_interface"); ok {
+		hInitNetworkInterfaceSet := hInitNetworkInterface.(*schema.Set)
+		for _, item := range hInitNetworkInterfaceSet.List() {
+			hInitNetworkInterfaceMap, ok := item.(map[string]interface{})
+			if ok {
+				vmNicConfiguration = ovirtclient.NewNicConfiguration(hInitNetworkInterfaceMap["name"].(string), ovirtclient.IP{
+					Address: hInitNetworkInterfaceMap["address"].(string),
+					Gateway: hInitNetworkInterfaceMap["gateway"].(string),
+					Netmask: hInitNetworkInterfaceMap["netmask"].(string),
+					Version: ovirtclient.IpVersion(hInitNetworkInterfaceMap["version"].(string)),
+				})
+
+				useInit = true
+			}
+		}
+	}
 
 	if useInit {
-		_, err := params.WithInitialization(ovirtclient.NewInitialization(vmInitScript, vmHostname))
+		i := ovirtclient.NewInitialization(vmInitScript, vmHostname)
+
+		if vmNicConfiguration != nil {
+			i = i.WithNicConfiguration(vmNicConfiguration)
+		}
+		if vmInitDnsSearch != "" {
+			i = i.WithDnsSearch(vmInitDnsSearch)
+		}
+		if vmInitDnsServers != "" {
+			i = i.WithDnsServers(vmInitDnsServers)
+		}
+		if vmCloudInitNetworkProtocol != "" {
+			i = i.WithCloudInitNetworkProtocol(vmCloudInitNetworkProtocol)
+		}
+		if vmUserName != "" {
+			i = i.WithUserName(vmUserName)
+		}
+		if vmPassword != "" {
+			i = i.WithRootPassword(vmPassword)
+		}
+		if vmAuthorizedSshKeys != "" {
+			i = i.WithAuthorizedSshKeys(vmAuthorizedSshKeys)
+		}
+
+		_, err := params.WithInitialization(i)
 		if err != nil {
 			diags = append(diags, errorToDiag("add Initialization parameters", err))
 		}

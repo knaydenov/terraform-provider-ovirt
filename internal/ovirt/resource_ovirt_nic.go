@@ -59,13 +59,21 @@ func (p *provider) nicResource() *schema.Resource {
 }
 
 func (p *provider) nicCreate(ctx context.Context, data *schema.ResourceData, _ interface{}) diag.Diagnostics {
+	var err error
+
 	client := p.client.WithContext(ctx)
 	vmID := data.Get("vm_id").(string)
 	vnicProfileID := data.Get("vnic_profile_id").(string)
 	name := data.Get("name").(string)
 	mac := data.Get("mac").(string)
 
-	optionalNicParameters, err := ovirtclient.CreateNICParams().WithMac(mac)
+	optionalNicParameters := ovirtclient.CreateNICParams()
+	if mac != "" {
+		optionalNicParameters, err = optionalNicParameters.WithMac(mac)
+		if err != nil {
+			return diag.FromErr(err)
+		}
+	}
 
 	nic, err := client.CreateNIC(
 		ovirtclient.VMID(vmID),
@@ -146,6 +154,5 @@ func nicResourceUpdate(nic ovirtclient.NIC, data *schema.ResourceData) diag.Diag
 	diags = setResourceField(data, "vnic_profile_id", nic.VNICProfileID(), diags)
 	diags = setResourceField(data, "name", nic.Name(), diags)
 	diags = setResourceField(data, "vm_id", nic.VMID(), diags)
-	diags = setResourceField(data, "mac", nic.Mac(), diags)
 	return diags
 }

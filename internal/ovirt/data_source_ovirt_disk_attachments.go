@@ -21,6 +21,15 @@ func (p *provider) diskAttachmentsDataSource() *schema.Resource {
 				Description:      "oVirt ID of the VM to list the attachments for.",
 				ValidateDiagFunc: validateUUID,
 			},
+			"aliases": {
+				Type:        schema.TypeSet,
+				Optional:    true,
+				ForceNew:    true,
+				Description: "Aliases of disks.",
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
+				},
+			},
 			"attachments": {
 				Type:     schema.TypeSet,
 				Computed: true,
@@ -60,6 +69,14 @@ func (p *provider) diskAttachmentsDataSourceRead(
 	client := p.client.WithContext(ctx)
 
 	vmID := data.Get("vm_id").(string)
+	diskAliases := []string{}
+
+	if aliasesList, ok := data.GetOk("aliases"); ok {
+		for _, alias := range aliasesList.(*schema.Set).List() {
+			diskAliases = append(diskAliases, alias.(string))
+		}
+	}
+
 	diskAttachments, err := client.ListDiskAttachments(ovirtclient.VMID(vmID))
 	if err != nil {
 		return errorToDiags(fmt.Sprintf("list disk attachments of VM %s", vmID), err)
@@ -68,6 +85,17 @@ func (p *provider) diskAttachmentsDataSourceRead(
 	attachments := make([]map[string]interface{}, 0)
 
 	for _, diskAttachment := range diskAttachments {
+		if len(diskAliases) > 0 {
+			disk, err := diskAttachment.Disk()
+			if err != nil {
+				return errorToDiags("get disk", err)
+			}
+
+			if !inList(disk.Alias(), diskAliases) {
+				continue
+			}
+		}
+
 		attachment := make(map[string]interface{}, 0)
 
 		attachment["id"] = diskAttachment.ID()

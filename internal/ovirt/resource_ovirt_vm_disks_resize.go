@@ -24,6 +24,16 @@ var vmDisksResizeSchema = map[string]*schema.Schema{
 		Description:      "Disk size in bytes to set all disks to.",
 		ValidateDiagFunc: validateDiskSize,
 	},
+	"disk_ids": {
+		Type:        schema.TypeSet,
+		Optional:    true,
+		ForceNew:    true,
+		Description: "A list of disk IDs to resize.",
+		Elem: &schema.Schema{
+			Type:             schema.TypeString,
+			ValidateDiagFunc: validateUUID,
+		},
+	},
 }
 
 func (p *provider) vmDisksResizeResource() *schema.Resource {
@@ -86,6 +96,13 @@ func (p *provider) vmDisksResizeDelete(_ context.Context, data *schema.ResourceD
 func resizeAllDisks(client ovirtclient.Client, data *schema.ResourceData) diag.Diagnostics {
 	vmID := ovirtclient.VMID(data.Get("vm_id").(string))
 	desiredSize := uint64(data.Get("size").(int))
+	diskIds := []string{}
+
+	if diskIdsList, ok := data.GetOk("disk_ids"); ok {
+		for _, diskID := range diskIdsList.(*schema.Set).List() {
+			diskIds = append(diskIds, diskID.(string))
+		}
+	}
 
 	diskAttachments, err := client.ListDiskAttachments(vmID)
 	if err != nil {
@@ -96,6 +113,9 @@ func resizeAllDisks(client ovirtclient.Client, data *schema.ResourceData) diag.D
 		disk, err := diskAttachment.Disk()
 		if err != nil {
 			return errorToDiags(fmt.Sprintf("get disk %s", diskAttachment.DiskID()), err)
+		}
+		if len(diskIds) > 0 && !inList(string(disk.ID()), diskIds) {
+			continue
 		}
 		if disk.ProvisionedSize() == desiredSize {
 			continue

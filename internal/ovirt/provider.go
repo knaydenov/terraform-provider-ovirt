@@ -125,6 +125,9 @@ func (p *provider) getProvider() *schema.Provider {
 			"ovirt_disk":                     p.diskResource(),
 			"ovirt_disk_resize":              p.diskResizeResource(),
 			"ovirt_vm_disks_resize":          p.vmDisksResizeResource(),
+			"ovirt_vm_disks_move":            p.vmDisksMoveResource(),
+			"ovirt_disk_move":                p.diskMoveResource(),
+			"ovirt_disk_copy":                p.diskCopyResource(),
 			"ovirt_disk_from_image":          p.diskFromImageResource(),
 			"ovirt_disk_attachment":          p.diskAttachmentResource(),
 			"ovirt_disk_attachments":         p.diskAttachmentsResource(),
@@ -135,6 +138,7 @@ func (p *provider) getProvider() *schema.Provider {
 		DataSourcesMap: map[string]*schema.Resource{
 			"ovirt_blank_template":            p.blankTemplateDataSource(),
 			"ovirt_disk_attachments":          p.diskAttachmentsDataSource(),
+			"ovirt_disk":                      p.diskDataSource(),
 			"ovirt_template_disk_attachments": p.templateDiskAttachmentsDataSource(),
 			"ovirt_cluster_hosts":             p.clusterHostsDataSource(),
 			"ovirt_templates":                 p.templatesDataSource(),

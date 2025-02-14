@@ -111,3 +111,12 @@ func appendDiags(diags diag.Diagnostics, action string, err error) diag.Diagnost
 	}
 	return append(diags, errorToDiag(action, err))
 }
+
+func inList(s string, list []string) bool {
+	for _, c := range list {
+		if s == c {
+			return true
+		}
+	}
+	return false
+}
