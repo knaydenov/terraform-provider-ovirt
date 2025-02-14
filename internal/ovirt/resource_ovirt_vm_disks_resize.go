@@ -65,6 +65,13 @@ func (p *provider) vmDisksResizeRead(ctx context.Context, data *schema.ResourceD
 	size := desiredSize
 
 	vmID := ovirtclient.VMID(data.Get("vm_id").(string))
+	diskIds := []string{}
+
+	if diskIdsList, ok := data.GetOk("disk_ids"); ok {
+		for _, diskID := range diskIdsList.(*schema.Set).List() {
+			diskIds = append(diskIds, diskID.(string))
+		}
+	}
 
 	diskAttachments, err := client.ListDiskAttachments(vmID)
 	if err != nil {
@@ -74,6 +81,9 @@ func (p *provider) vmDisksResizeRead(ctx context.Context, data *schema.ResourceD
 		disk, err := diskAttachment.Disk()
 		if err != nil {
 			return errorToDiags(fmt.Sprintf("get disk %s", diskAttachment.DiskID()), err)
+		}
+		if len(diskIds) > 0 && !inList(string(disk.ID()), diskIds) {
+			continue
 		}
 		if disk.ProvisionedSize() != desiredSize {
 			// Set the reported size to the size differing so the resource can be refreshed and the disks resized.
